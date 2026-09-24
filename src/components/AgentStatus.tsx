@@ -1,12 +1,19 @@
 import React from 'react';
 import { Bot, Sparkles, Database, Cpu } from 'lucide-react';
 import { AgentStatus as IAgentStatus } from '../types';
+import { ModelSelector } from './ModelSelector';
 
 interface AgentStatusProps {
   status: IAgentStatus;
+  selectedModel?: string;
+  onSelectModel?: (modelId: string) => void;
 }
 
-export const AgentStatus: React.FC<AgentStatusProps> = ({ status }) => {
+export const AgentStatus: React.FC<AgentStatusProps> = ({
+  status,
+  selectedModel,
+  onSelectModel,
+}) => {
   const isOnline = status.status === 'online';
   const isBusy = status.status === 'busy';
 
@@ -42,13 +49,32 @@ export const AgentStatus: React.FC<AgentStatusProps> = ({ status }) => {
         </div>
       </div>
 
+      {/* Model Selection in Agent Status */}
+      {selectedModel && onSelectModel && (
+        <div className="pt-0.5">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider flex items-center gap-1">
+              <Cpu className="w-3 h-3 text-cyan-400" />
+              Active Model
+            </span>
+          </div>
+          <div className="w-full">
+            <ModelSelector
+              selectedModel={selectedModel}
+              onSelectModel={onSelectModel}
+              disabled={isBusy}
+            />
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2 pt-1 border-t border-neutral-800/60 text-xs">
         <div className="p-2 rounded-lg bg-neutral-950/60 border border-neutral-800/50">
           <div className="flex items-center gap-1 text-[11px] text-neutral-400 mb-0.5">
             <Cpu className="w-3 h-3 text-cyan-400" />
-            <span>Model</span>
+            <span>Identifier</span>
           </div>
-          <p className="font-semibold text-neutral-200 truncate">{status.model}</p>
+          <p className="font-semibold text-neutral-200 truncate font-mono text-[11px]">{status.model}</p>
         </div>
 
         <div className="p-2 rounded-lg bg-neutral-950/60 border border-neutral-800/50">

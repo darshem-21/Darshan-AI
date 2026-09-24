@@ -8,12 +8,15 @@ import {
   X,
   FileText,
 } from 'lucide-react';
+import { ModelSelector } from './ModelSelector';
 
 interface MessageInputProps {
   onSendMessage: (content: string, attachment?: { name: string; size: string }) => void;
   isLoading: boolean;
   onStopGeneration?: () => void;
   inputRef?: React.RefObject<HTMLTextAreaElement | null>;
+  selectedModel?: string;
+  onSelectModel?: (model: string) => void;
 }
 
 export const MessageInput: React.FC<MessageInputProps> = ({
@@ -21,6 +24,8 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   isLoading,
   onStopGeneration,
   inputRef: externalRef,
+  selectedModel,
+  onSelectModel,
 }) => {
   const [content, setContent] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -119,7 +124,16 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         {/* Bottom toolbar */}
         <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between pointer-events-none">
           {/* Left action tools */}
-          <div className="flex items-center gap-1 pointer-events-auto">
+          <div className="flex items-center gap-1.5 pointer-events-auto">
+            {selectedModel && onSelectModel && (
+              <ModelSelector
+                selectedModel={selectedModel}
+                onSelectModel={onSelectModel}
+                disabled={isLoading}
+                compact
+              />
+            )}
+
             <input
               type="file"
               ref={fileInputRef}
@@ -130,7 +144,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="p-2 rounded-lg text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 transition-colors cursor-pointer"
+              className="p-1.5 sm:p-2 rounded-lg text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 transition-colors cursor-pointer"
               title="Attach context file"
               aria-label="Attach file"
             >
@@ -140,7 +154,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
             <button
               type="button"
               onClick={toggleVoice}
-              className={`p-2 rounded-lg transition-colors cursor-pointer ${
+              className={`p-1.5 sm:p-2 rounded-lg transition-colors cursor-pointer ${
                 isListening
                   ? 'text-red-400 bg-red-950/40 animate-pulse'
                   : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800'

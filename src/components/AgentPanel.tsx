@@ -17,6 +17,8 @@ interface AgentPanelProps {
   memories: MemoryItem[];
   onViewMemory: () => void;
   onClearMemory: () => void;
+  selectedModel?: string;
+  onSelectModel?: (modelId: string) => void;
 }
 
 export const AgentPanel: React.FC<AgentPanelProps> = ({
@@ -30,6 +32,8 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({
   memories,
   onViewMemory,
   onClearMemory,
+  selectedModel,
+  onSelectModel,
 }) => {
   if (!isOpen) return null;
 
@@ -61,7 +65,11 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({
       {/* Main Content Sections */}
       <div className="p-3.5 space-y-3.5 flex-1">
         {/* Agent Status */}
-        <AgentStatus status={status} />
+        <AgentStatus
+          status={status}
+          selectedModel={selectedModel}
+          onSelectModel={onSelectModel}
+        />
 
         {/* Live Agent Activity Timeline */}
         <AgentActivity currentSteps={activitySteps} isGenerating={isGenerating} />

@@ -535,7 +535,7 @@ export async function sendMessage(
   await sleep(400, signal);
   steps[steps.length - 1].status = 'completed';
 
-  const reply = generateRealisticResponse(content);
+  const reply = generateRealisticResponse(content, options.model);
 
   // Update conversation last message in local storage
   const convs = loadStoredConversations();
@@ -570,8 +570,9 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 /**
  * Generate contextual, helpful AI responses for demo & preview mode
  */
-function generateRealisticResponse(prompt: string): string {
+function generateRealisticResponse(prompt: string, modelId?: string): string {
   const p = prompt.toLowerCase();
+  const selectedModelId = modelId || 'openrouter/free';
 
   if (p.includes('explain machine learning') || p.includes('machine learning simply')) {
     return `### What is Machine Learning?

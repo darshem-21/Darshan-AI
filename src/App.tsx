@@ -26,6 +26,7 @@ import {
   checkBackendHealth,
   API_URL,
 } from './services/api';
+import { DEFAULT_MODEL_ID, getModelInfo } from './constants/models';
 
 import { Sidebar } from './components/Sidebar';
 import { ChatWindow } from './components/ChatWindow';
@@ -70,7 +71,7 @@ const DEFAULT_TOOLS: Tool[] = [
 
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
-  model: 'anthropic/claude-3.5-sonnet',
+  model: DEFAULT_MODEL_ID,
   temperature: 0.7,
   maxResponseLength: 2048,
   enableMemory: true,
@@ -351,17 +352,32 @@ export default function App() {
   // Save Settings
   const handleSaveSettings = (newSettings: AppSettings) => {
     setSettings(newSettings);
+    try {
+      localStorage.setItem('darshan_ai_settings', JSON.stringify(newSettings));
+    } catch {
+      // Ignore
+    }
+  };
+
+  // Direct Model Selector change handler
+  const handleSelectModel = (modelId: string) => {
+    setSettings((prev) => {
+      const updated = { ...prev, model: modelId };
+      try {
+        localStorage.setItem('darshan_ai_settings', JSON.stringify(updated));
+      } catch {
+        // Ignore
+      }
+      return updated;
+    });
   };
 
   const activeConv = conversations.find((c) => c.id === activeConversationId) || null;
+  const currentModelInfo = getModelInfo(settings.model);
 
   const agentStatus: AgentStatus = {
     status: isLoading ? 'busy' : 'online',
-    model: settings.model.includes('claude')
-      ? 'Claude 3.5'
-      : settings.model.includes('gpt-4o')
-      ? 'GPT-4o'
-      : 'OpenRouter',
+    model: currentModelInfo.shortName,
     memoryProvider: settings.enableMemory ? 'Supabase' : 'Disabled',
     activeTask: isLoading ? currentStep : undefined,
     toolsCount: tools.filter((t) => t.enabled).length,
@@ -400,6 +416,8 @@ export default function App() {
         isAgentPanelOpen={isAgentPanelOpen}
         onToggleAgentPanel={() => setIsAgentPanelOpen(!isAgentPanelOpen)}
         agentStatus={agentStatus}
+        selectedModel={settings.model}
+        onSelectModel={handleSelectModel}
       />
 
       {/* Right Agent Information Panel (Desktop & Tablet collapsible) */}
@@ -414,6 +432,8 @@ export default function App() {
         memories={memories}
         onViewMemory={() => setIsMemoryModalOpen(true)}
         onClearMemory={handleClearMemory}
+        selectedModel={settings.model}
+        onSelectModel={handleSelectModel}
       />
 
       {/* Settings Modal */}

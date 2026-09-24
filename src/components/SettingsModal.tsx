@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Moon, Sun, Cpu, Sliders, Shield, Info, Check, Server, RefreshCw } from 'lucide-react';
 import { AppSettings } from '../types';
 import { checkBackendHealth } from '../services/api';
+import { BACKEND_SUPPORTED_MODELS } from '../constants/models';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -10,12 +11,7 @@ interface SettingsModalProps {
   onSaveSettings: (newSettings: AppSettings) => void;
 }
 
-const AVAILABLE_MODELS = [
-  { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet (OpenRouter)', desc: 'Best for complex reasoning & code' },
-  { id: 'openai/gpt-4o', name: 'GPT-4o (OpenRouter)', desc: 'Fast multimodal intelligence' },
-  { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B Instruct (OpenRouter)', desc: 'High-performance open weights' },
-  { id: 'deepseek/deepseek-chat', name: 'DeepSeek Chat V3 (OpenRouter)', desc: 'Cost-efficient & high coding prowess' },
-];
+const AVAILABLE_MODELS = BACKEND_SUPPORTED_MODELS;
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -158,9 +154,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         onChange={() => setLocalSettings({ ...localSettings, model: m.id })}
                         className="mt-0.5 text-cyan-500 focus:ring-cyan-500"
                       />
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-white">{m.name}</p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-semibold text-white">{m.name}</p>
+                          {m.badge && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-medium bg-cyan-950 text-cyan-300 border border-cyan-800/60 shrink-0">
+                              {m.badge}
+                            </span>
+                          )}
+                        </div>
                         <p className="text-[11px] text-neutral-400 mt-0.5">{m.desc}</p>
+                        <p className="text-[10px] text-neutral-500 font-mono mt-1">{m.id}</p>
                       </div>
                     </label>
                   ))}

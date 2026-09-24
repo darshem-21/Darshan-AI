@@ -14,6 +14,7 @@ import { MessageInput } from './MessageInput';
 import { WelcomeScreen } from './WelcomeScreen';
 import { LoadingIndicator } from './LoadingIndicator';
 import { ErrorMessage } from './ErrorMessage';
+import { ModelSelector } from './ModelSelector';
 
 interface ChatWindowProps {
   conversation: Conversation | null;
@@ -30,6 +31,8 @@ interface ChatWindowProps {
   isAgentPanelOpen: boolean;
   onToggleAgentPanel: () => void;
   agentStatus: AgentStatus;
+  selectedModel: string;
+  onSelectModel: (model: string) => void;
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({
@@ -47,6 +50,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   isAgentPanelOpen,
   onToggleAgentPanel,
   agentStatus,
+  selectedModel,
+  onSelectModel,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -125,7 +130,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         </div>
 
         {/* Right: Actions */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
+          {/* Model Selector in Top Bar */}
+          <div className="hidden sm:block">
+            <ModelSelector
+              selectedModel={selectedModel}
+              onSelectModel={onSelectModel}
+              disabled={isLoading}
+            />
+          </div>
+
           <button
             onClick={onNewChat}
             type="button"
@@ -133,7 +147,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             title="Start new conversation"
           >
             <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-            <span className="hidden sm:inline">New Chat</span>
+            <span className="hidden md:inline">New Chat</span>
           </button>
 
           <button
@@ -206,6 +220,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
           isLoading={isLoading}
           onStopGeneration={onStopGeneration}
           inputRef={textareaRef}
+          selectedModel={selectedModel}
+          onSelectModel={onSelectModel}
         />
       </div>
     </main>
