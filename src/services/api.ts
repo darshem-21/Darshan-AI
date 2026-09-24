@@ -254,13 +254,26 @@ export async function getConversations(): Promise<Conversation[]> {
     const res = await fetch(`${API_URL}/api/conversations`, {
       headers: { 'Content-Type': 'application/json' },
     });
+
     if (res.ok) {
-      return await res.json();
+      const data = await res.json();
+
+      if (Array.isArray(data)) {
+        return data.slice(0, 10);
+      }
+
+      if (Array.isArray(data.conversations)) {
+        return data.conversations.slice(0, 10);
+      }
+
+      return [];
     }
   } catch {
     // Fallback to local store
   }
-  return loadStoredConversations();
+
+  const stored = loadStoredConversations();
+  return Array.isArray(stored) ? stored.slice(0, 10) : [];
 }
 
 /**
@@ -268,6 +281,11 @@ export async function getConversations(): Promise<Conversation[]> {
  */
 export async function getConversation(id: string): Promise<Conversation | null> {
   const all = await getConversations();
+
+  if (!Array.isArray(all)) {
+    return null;
+  }
+
   return all.find((c) => c.id === id) || null;
 }
 
@@ -331,13 +349,26 @@ export async function getMemory(): Promise<MemoryItem[]> {
     const res = await fetch(`${API_URL}/api/memory`, {
       headers: { 'Content-Type': 'application/json' },
     });
+
     if (res.ok) {
-      return await res.json();
+      const data = await res.json();
+
+      if (Array.isArray(data)) {
+        return data.slice(0, 10);
+      }
+
+      if (Array.isArray(data.memories)) {
+        return data.memories.slice(0, 10);
+      }
+
+      return [];
     }
   } catch {
     // Fallback
   }
-  return loadStoredMemories();
+
+  const stored = loadStoredMemories();
+  return Array.isArray(stored) ? stored.slice(0, 10) : [];
 }
 
 /**
