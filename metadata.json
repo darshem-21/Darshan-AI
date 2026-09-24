@@ -1,0 +1,6 @@
+{
+  "name": "Darshan AI",
+  "description": "A modern, responsive AI Agent web application with tools, memory, and intelligent automation ready for Python backend integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
