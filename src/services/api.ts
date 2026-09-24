@@ -10,7 +10,7 @@
 
 import { Message, Conversation, MemoryItem, AgentActivityStep } from '../types';
 
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export const API_URL = import.meta.env.VITE_API_URL || 'https://darshan-ai-backend.onrender.com';
 
 // Default initial mock conversations
 const INITIAL_CONVERSATIONS: Conversation[] = [
