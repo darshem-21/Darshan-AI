@@ -296,6 +296,24 @@ class VectorStoreManager:
         return list(stats.values())
 
     @staticmethod
+    def get_document_text(
+        user_id: str,
+        source: str,
+        max_chars: int = 30000,
+    ) -> str:
+        """Return the indexed text of one document (chunks in order)."""
+        chunks = (
+            _fetch_chunks(user_id)
+            if supabase_enabled()
+            else _IN_MEMORY_STORES.get(user_id, [])
+        )
+        mine = sorted(
+            (c for c in chunks if c.get("source") == source),
+            key=lambda c: c.get("chunk_index", 0),
+        )
+        return "\n\n".join(c["content"] for c in mine)[:max_chars]
+
+    @staticmethod
     def search(
         user_id: str,
         query: str,
