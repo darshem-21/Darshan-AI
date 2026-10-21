@@ -31,9 +31,22 @@ def _read_user_uploaded_text(user_id: Optional[str], filename: str) -> str:
     name = Path(filename).name
     if name != filename or name in {".", ".."}:
         return "Invalid filename. Choose a file uploaded through Darshan AI."
+    # PDFs and other uploads are indexed into the RAG store (the temp file is deleted),
+    # so read their text from the index instead of the filesystem.
+    try:
+        from backend.rag.loader import sanitize_filename
+        from backend.rag.vectorstore import VectorStoreManager
+        indexed_text = VectorStoreManager.get_document_text(user_id, sanitize_filename(name))
+    except Exception:
+        indexed_text = ""
+    if indexed_text:
+        return f"File: {name} (indexed text)\n--- BEGIN FILE CONTENT ---\n{indexed_text}\n--- END FILE CONTENT ---"
 
     allowed = {".txt", ".md", ".py", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".html", ".css", ".json", ".yaml", ".yml", ".toml", ".xml", ".sql", ".sh", ".bat", ".ps1"}
     if Path(name).suffix.lower() not in allowed:
+        if Path(name).suffix.lower() == ".pdf":
+            return ("That PDF is not in your indexed documents. Its upload most likely failed because it has "
+                    "no selectable text (scanned/image-only PDF needs OCR). Upload a text-based PDF or a .txt copy.")
         return "Unsupported text/source file type. Upload a supported text or source-code file."
 
     root = Path(UPLOAD_DIR).resolve()
