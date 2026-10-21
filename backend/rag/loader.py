@@ -19,6 +19,20 @@ def sanitize_filename(filename: str) -> str:
     clean = re.sub(r"[^a-zA-Z0-9_.-]", "_", clean)
     return clean or "document.txt"
 
+def _extract_with_pymupdf(file_path: Path) -> str:
+    """Fallback extractor; returns "" if PyMuPDF is missing or finds nothing."""
+    try:
+        try:
+            import pymupdf as fitz
+        except ImportError:
+            import fitz
+        with fitz.open(str(file_path)) as doc:
+            text = "\n\n".join(page.get_text() for page in doc)
+        return text.replace("\x00", "").strip()
+    except Exception as exc:
+        print(f"[RAG] PyMuPDF fallback unavailable/failed: {exc}")
+        return ""
+
 
 def extract_text_from_pdf(file_path: Path) -> str:
     """Extract selectable text from a PDF using pypdf."""
@@ -68,6 +82,9 @@ def extract_text_from_pdf(file_path: Path) -> str:
                 )
 
         extracted_text = "\n\n".join(text_parts).strip()
+
+        if not extracted_text:
+            extracted_text = _extract_with_pymupdf(file_path)
 
         print(
             f"[RAG] PDF pages: {len(reader.pages)}; "
