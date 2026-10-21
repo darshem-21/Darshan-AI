@@ -1,0 +1,416 @@
+"""
+LangGraph State Machine for Darshan AI Agent.
+Coordinates intent parsing, tool selection, RAG citation retrieval,
+human approval gating for sensitive operations, and OpenRouter LLM response generation.
+"""
+
+import datetime
+from typing import Dict, Any, List, Optional
+import httpx
+
+from backend.agent.state import DarshanAgentState, AgentActivityStep, PendingAction
+from backend.agent.tools import DarshanToolsRegistry
+from backend.config import OPENROUTER_API_KEY, OPENROUTER_DEFAULT_MODEL, OPENROUTER_BASE_URL, REQUIRE_HUMAN_APPROVAL_FOR_TOOLS, UPLOAD_DIR
+
+
+def get_current_time_str() -> str:
+    return datetime.datetime.now().strftime("%H:%M:%S")
+
+
+def _read_user_uploaded_text(user_id: Optional[str], filename: str) -> str:
+    """Read a small text/source file from the authenticated user's upload area only."""
+    from pathlib import Path
+    import os
+
+    if not user_id:
+        return "File reading requires signing in first."
+    if not isinstance(filename, str) or not filename.strip():
+        return "Please provide the uploaded filename."
+
+    # Only accept a basename, never a path supplied by the model.
+    name = Path(filename).name
+    if name != filename or name in {".", ".."}:
+        return "Invalid filename. Choose a file uploaded through Darshan AI."
+
+    allowed = {".txt", ".md", ".py", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".html", ".css", ".json", ".yaml", ".yml", ".toml", ".xml", ".sql", ".sh", ".bat", ".ps1"}
+    if Path(name).suffix.lower() not in allowed:
+        return "Unsupported text/source file type. Upload a supported text or source-code file."
+
+    root = Path(UPLOAD_DIR).resolve()
+    candidates = []
+    # REA uploads are stored under a per-user directory.
+    user_root = (root / str(user_id)).resolve()
+    if user_root.exists():
+        candidates.extend(p for p in user_root.iterdir() if p.is_file() and (p.name == name or p.name.endswith("_" + name)))
+    # RAG uploads use a user-id prefix in the upload root; match only the exact basename.
+    if root.exists():
+        candidates.extend(p for p in root.iterdir() if p.is_file() and (p.name == name or p.name.endswith("_" + name)) and p.name.startswith(f"{user_id}_"))
+
+    safe_candidates = []
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve(strict=True)
+            if resolved.is_relative_to(user_root) or (resolved.parent == root and resolved.name.startswith(f"{user_id}_")):
+                safe_candidates.append(resolved)
+        except (OSError, RuntimeError):
+            continue
+    if not safe_candidates:
+        return "That file was not found in your Darshan AI uploads. Upload it first, then ask me to read it."
+
+    target = safe_candidates[0]
+    try:
+        if target.stat().st_size > 1_000_000:
+            return "This file is larger than the 1 MB text-reading limit. Upload a smaller text/source file."
+        content = target.read_text(encoding="utf-8", errors="replace")
+        return f"File: {target.name}\n--- BEGIN FILE CONTENT ---\n{content[:30000]}\n--- END FILE CONTENT ---"
+    except OSError:
+        return "The uploaded file could not be read. Please upload it again."
+
+
+async def run_darshan_agent(
+    user_id: Optional[str],
+    conversation_id: str,
+    message: str,
+    history: List[Dict[str, str]],
+    model: Optional[str] = None,
+    temperature: float = 0.7,
+    enable_memory: bool = True,
+    enable_tools: bool = True,
+    approved_action_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Executes a multi-stage LangGraph-inspired agent lifecycle:
+    1. Parse intent & determine necessary tools or document lookups.
+    2. Check security permissions: if action modifies files or executes native CLI, gate for human approval.
+    3. Execute safe tools and retrieve citations.
+    4. Call OpenRouter to synthesize grounded answer.
+    """
+    selected_model = model or OPENROUTER_DEFAULT_MODEL
+    activity_steps: List[AgentActivityStep] = []
+    citations: List[Dict[str, Any]] = []
+    tool_calls: List[Dict[str, Any]] = []
+    pending_action: Optional[PendingAction] = None
+
+    # Step 1: Thinking
+    activity_steps.append({
+        "id": "step-1",
+        "type": "thinking",
+        "label": "Thinking...",
+        "detail": "Analyzing user query semantics and tool requirements",
+        "timestamp": get_current_time_str(),
+        "status": "completed"
+    })
+
+    lower_query = message.lower()
+    tool_context_parts = []
+
+    # Check for GitHub repository URL in query
+    github_match = "github.com/" in lower_query
+    if github_match and enable_tools:
+        activity_steps.append({
+            "id": "step-github",
+            "type": "tool",
+            "label": "Analyzing GitHub Repository...",
+            "detail": "Fetching directory tree, dependencies, and architecture",
+            "timestamp": get_current_time_str(),
+            "status": "active"
+        })
+        import re
+        urls = re.findall(r'https?://github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+', message)
+        if urls:
+            repo_res = await DarshanToolsRegistry.github_analyze(urls[0])
+            if repo_res.get("success"):
+                data = repo_res["data"]
+                tool_context_parts.append(
+                    f"--- GitHub Repository Inspection ({data['owner']}/{data['repo']}) ---\n"
+                    f"Description: {data['description']}\n"
+                    f"Stars: {data['stars']} | Language: {data['primary_language']}\n"
+                    f"Tech Stack: {', '.join(data['tech_stack'])}\n"
+                    f"Files: {data['total_files']} files across directories: {list(data['directory_breakdown'].keys())}\n"
+                    f"README snippet:\n{data['readme_preview'][:600]}\n"
+                )
+                tool_calls.append({
+                    "id": "tool-gh",
+                    "name": "GitHub Repository Analyzer",
+                    "input": urls[0],
+                    "output": f"Analyzed {data['total_files']} files and extracted architectural stack ({', '.join(data['tech_stack'])})",
+                    "status": "completed"
+                })
+                activity_steps[-1]["status"] = "completed"
+
+    # Check for RAG / Document Search
+document_keywords = (
+    "document",
+    "pdf",
+    "uploaded file",
+    "knowledge base",
+    "search my files",
+    "search documents",
+    "rag",
+    "citation",
+)
+
+is_document_query = any(
+    keyword in lower_query for keyword in document_keywords
+)
+
+if user_id and is_document_query and not github_match:
+        activity_steps.append({
+            "id": "step-rag",
+            "type": "memory",
+            "label": "Retrieving Grounding Documents...",
+            "detail": "Querying local vector store and extracting source citations",
+            "timestamp": get_current_time_str(),
+            "status": "active"
+        })
+        rag_res = await DarshanToolsRegistry.rag_search(user_id=user_id, query=message)
+        if rag_res.get("context"):
+            tool_context_parts.append(f"--- Document Knowledge Base (RAG Context) ---\n{rag_res['context']}")
+            citations.extend(rag_res.get("citations", []))
+            activity_steps[-1]["status"] = "completed"
+        else:
+            activity_steps[-1]["status"] = "completed"
+            activity_steps[-1]["detail"] = "No matching documents found in user library"
+
+    # Check for REA reverse engineering commands
+    
+    # Check for REA reverse engineering commands.
+    # This stage only requests approval; it never executes REA.
+    if (
+        "rea" in lower_query
+        or "reverse engineer" in lower_query
+        or "decompile" in lower_query
+    ):
+        import re
+
+        execution_requested = bool(
+            re.search(
+                r"\b(inspect|run rea|analyze binary|analyse binary|decompile)\b",
+                message,
+                re.IGNORECASE,
+            )
+        )
+
+        if execution_requested:
+            pending_action = {
+                # The real approval UUID is created by the approval API.
+                "action_id": "",
+                "tool_name": "REA Reverse Engineer CLI",
+                "description": (
+                    "Request approval for REA analysis. "
+                    "Execution remains disabled until server-side "
+                    "approval and target ownership checks are complete."
+                ),
+                # Do not treat the whole chat message as a target path.
+                "parameters": {"target": None},
+                "impact": "cli_execution",
+                "requires_approval": True,
+                "status": "pending",
+            }
+
+            activity_steps.append({
+                "id": "step-approval",
+                "type": "approval",
+                "label": "Approval Required",
+                "detail": (
+                    "No REA command was executed. A verified target "
+                    "and a server-generated approval record are required."
+                ),
+                "timestamp": get_current_time_str(),
+                "status": "active",
+            })
+        else:
+            doctor_res = await DarshanToolsRegistry.rea_doctor()
+            tool_context_parts.append(
+                "--- REA (Reverse Engineer Anything) Health Status ---\n"
+                f"Active & Verified: {doctor_res['verified_active']}\n"
+                f"Diagnostics: {doctor_res['prerequisites']}\n"
+                f"Instructions: {doctor_res['instructions']}\n"
+            )
+
+
+    # Check for Math / Calculation
+    
+    # Check for Math / Calculation only when the user explicitly
+    # requests a calculation or provides a simple arithmetic expression.
+    import re
+
+    calculation_requested = bool(
+        re.search(
+            r"\b(calculate|calculator|compute|solve)\b",
+            message,
+            re.IGNORECASE,
+        )
+    )
+
+    simple_expression = bool(
+        re.fullmatch(
+            r"\s*\d+(?:\.\d+)?\s*[\+\-\*/%]\s*\d+(?:\.\d+)?\s*",
+            message,
+        )
+    )
+
+    if enable_tools and (calculation_requested or simple_expression):
+        if simple_expression:
+            expr = message.strip()
+            calc_val = DarshanToolsRegistry.calculate(expr)
+            tool_context_parts.append(
+                f"Calculator evaluation of ({expr}): {calc_val}"
+            )
+            tool_calls.append({
+                "id": "tool-calc",
+                "name": "Calculator",
+                "input": expr,
+                "output": str(calc_val),
+                "status": "completed",
+            })
+
+
+    # Step: Generating with OpenRouter LLM
+    activity_steps.append({
+        "id": "step-gen",
+        "type": "generating",
+        "label": "Generating Response...",
+        "detail": f"Calling OpenRouter model {selected_model}",
+        "timestamp": get_current_time_str(),
+        "status": "active"
+    })
+
+    system_prompt = (
+        "You are Darshan AI, an engineering assistant built with React, FastAPI, and OpenRouter. "
+        "You can analyze uploaded documents, source code, and GitHub repositories.\n\n"
+        "Important tool rules: If a user asks to read or inspect a file they uploaded to Darshan AI, "
+        "call the read_uploaded_file tool with its exact uploaded filename. Never print raw MCP markup, "
+        "XML tool blocks, JSON tool-call examples, or pretend a tool was executed. The only available "
+        "filesystem tool reads small text/source files inside the authenticated user's own upload folder; "
+        "it cannot access arbitrary local paths on the user's computer. If the file is not found, ask the "
+        "user to upload it in this chat. Do not claim you read a file unless the tool returns its content.\n"
+        "When source citations are provided, cite them accurately. Be clear and technically precise."
+    )
+
+    combined_user_message = message
+    if tool_context_parts:
+        combined_user_message += "\n\n=== Tool & Retrieval Findings ===\n" + "\n\n".join(tool_context_parts)
+
+    llm_reply = ""
+
+    if OPENROUTER_API_KEY:
+        try:
+            headers = {
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/dharshanks98/darshan-ai",
+                "X-Title": "Darshan AI Agent",
+            }
+            messages_payload = [{"role": "system", "content": system_prompt}]
+            for h in history[-6:]:
+                role = h.get("role", "user")
+                if role in {"system", "user", "assistant"} and isinstance(h.get("content", ""), str):
+                    messages_payload.append({"role": role, "content": h.get("content", "")})
+            messages_payload.append({"role": "user", "content": combined_user_message})
+
+            tool_definitions = []
+            if enable_tools:
+                tool_definitions.append({
+                    "type": "function",
+                    "function": {
+                        "name": "read_uploaded_file",
+                        "description": "Read a small text or source-code file previously uploaded by the signed-in user to Darshan AI. This cannot access arbitrary computer paths.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"filename": {"type": "string", "description": "Exact filename shown in the user's Darshan AI upload list"}},
+                            "required": ["filename"],
+                            "additionalProperties": False,
+                        },
+                    },
+                })
+
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                for _ in range(3):
+                    payload = {
+                        "model": selected_model,
+                        "messages": messages_payload,
+                        "temperature": temperature,
+                    }
+                    if tool_definitions:
+                        payload["tools"] = tool_definitions
+                        payload["tool_choice"] = "auto"
+                    res = await client.post(
+                        f"{OPENROUTER_BASE_URL}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                    )
+                    if res.status_code != 200:
+                        print(f"OpenRouter request failed: HTTP {res.status_code}: {res.text[:500]}")
+                        break
+                    choice = res.json().get("choices", [{}])[0]
+                    assistant_message = choice.get("message", {})
+                    requested_calls = assistant_message.get("tool_calls") or []
+                    if not requested_calls:
+                        llm_reply = assistant_message.get("content") or ""
+                        break
+
+                    # Execute only the explicitly supported, read-only local tool.
+                    messages_payload.append({
+                        "role": "assistant",
+                        "content": assistant_message.get("content"),
+                        "tool_calls": requested_calls,
+                    })
+                    for requested in requested_calls:
+                        function = requested.get("function", {})
+                        call_name = function.get("name")
+                        call_id = requested.get("id", "")
+                        try:
+                            import json
+                            arguments = json.loads(function.get("arguments") or "{}")
+                        except (ValueError, TypeError):
+                            arguments = {}
+                        if call_name == "read_uploaded_file":
+                            output = _read_user_uploaded_text(user_id, arguments.get("filename", ""))
+                            tool_calls.append({
+                                "id": call_id or "tool-read-file",
+                                "name": "Read Uploaded File",
+                                "input": str(arguments.get("filename", "")),
+                                "output": output[:500],
+                                "status": "completed" if "BEGIN FILE CONTENT" in output else "failed",
+                            })
+                        else:
+                            output = "Unsupported tool. No action was performed."
+                        messages_payload.append({
+                            "role": "tool",
+                            "tool_call_id": call_id,
+                            "content": output,
+                        })
+                # If the model emits MCP syntax as plain text instead of making a real tool call,
+                # do not present that misleading syntax as if it were an executed operation.
+                if llm_reply and ("<mcp-tool>" in llm_reply.lower() or "<\\mcp-tool>" in llm_reply.lower()):
+                    llm_reply = (
+                        "I can't execute raw MCP markup from a chat response. To read a file, "
+                        "sign in and upload the text/source file through Darshan AI, then ask me to read it."
+                    )
+        except Exception as e:
+            print(f"OpenRouter request error: {e}")
+
+    if not llm_reply:
+        if tool_context_parts:
+            findings_summary = "\n".join(tool_context_parts)
+            llm_reply = (
+                "I processed your query using the Darshan AI tool registry. Here are the findings:\n\n"
+                f"{findings_summary}\n\nHow would you like to proceed?"
+            )
+        else:
+            llm_reply = (
+                "Hello! I am Darshan AI. I can help analyze GitHub repositories, search uploaded documents, "
+                "and review text/source files uploaded by your signed-in account. To read index.html, upload "
+                "it through Darshan AI first; I cannot directly access files on your computer."
+            )
+
+    activity_steps[-1]["status"] = "completed"
+
+    return {
+        "reply": llm_reply,
+        "activity_steps": activity_steps,
+        "citations": citations,
+        "tool_calls": tool_calls,
+        "pending_action": pending_action,
+    }

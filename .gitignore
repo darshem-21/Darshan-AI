@@ -1,0 +1,34 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+backend/storage/
+__pycache__/
+*.py[cod]
+
+backend/rea/node_modules/
+backend/.venv/
+backend/storage/uploads/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+
+# Local uploads and decompiled APK output
+backend/storage/uploads/
+jadx-output/
