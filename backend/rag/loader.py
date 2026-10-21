@@ -1,6 +1,10 @@
+
 """
 Document Loader and Chunking Engine for Darshan AI RAG.
-Supports PDF, TXT, Markdown, and source code files with security validation.
+Supports PDF, TXT, Markdown, and source-code files.
+
+PDF extraction uses pypdf. Scanned PDFs require OCR, which is not
+included in this lightweight loader.
 """
 
 import os
@@ -10,44 +14,99 @@ from typing import List, Dict, Any
 
 
 def sanitize_filename(filename: str) -> str:
-    """Removes path traversal patterns and unsafe characters."""
+    """Remove path traversal and unsafe filename characters."""
     clean = os.path.basename(filename)
-    clean = re.sub(r'[^a-zA-Z0-9_.-]', '_', clean)
+    clean = re.sub(r"[^a-zA-Z0-9_.-]", "_", clean)
     return clean or "document.txt"
 
 
 def extract_text_from_pdf(file_path: Path) -> str:
-    """Extracts text from PDF files using pypdf if available, with resilient fallback."""
+    """Extract selectable text from a PDF using pypdf."""
     try:
-        import pypdf
-        reader = pypdf.PdfReader(str(file_path))
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise RuntimeError(
+            "PDF support is unavailable. Install the pypdf package."
+        ) from exc
+
+    try:
+        reader = PdfReader(str(file_path), strict=False)
+
+        if reader.is_encrypted:
+            try:
+                decrypted = reader.decrypt("")
+            except Exception as exc:
+                raise ValueError(
+                    "This PDF is password-protected. Upload an unlocked PDF."
+                ) from exc
+
+            if not decrypted:
+                raise ValueError(
+                    "This PDF is password-protected. Upload an unlocked PDF."
+                )
+
+        if not reader.pages:
+            raise ValueError("The uploaded PDF contains no pages.")
+
         text_parts = []
-        for i, page in enumerate(reader.pages):
-            page_text = page.extract_text() or ""
-            if page_text.strip():
-                text_parts.append(f"--- Page {i + 1} ---\n{page_text}")
-        return "\n\n".join(text_parts)
-    except Exception as e:
-        # Fallback basic binary text scan
-        try:
-            with open(file_path, "rb") as f:
-                content = f.read().decode("latin-1", errors="ignore")
-                matches = re.findall(r"\(([^\(\)]+)\)\s*Tj", content)
-                if matches:
-                    return " ".join(matches)
-        except Exception:
-            pass
-        return f"[PDF parsing notice: Extracted using fallback reader. {str(e)}]"
+
+        for page_number, page in enumerate(reader.pages, start=1):
+            try:
+                page_text = page.extract_text() or ""
+            except Exception as exc:
+                print(
+                    f"[RAG] Could not extract PDF page "
+                    f"{page_number}: {exc}"
+                )
+                continue
+
+            page_text = page_text.replace("\x00", "").strip()
+
+            if page_text:
+                text_parts.append(
+                    f"--- Page {page_number} ---\n{page_text}"
+                )
+
+        extracted_text = "\n\n".join(text_parts).strip()
+
+        print(
+            f"[RAG] PDF pages: {len(reader.pages)}; "
+            f"extracted characters: {len(extracted_text)}"
+        )
+
+        if not extracted_text:
+            raise ValueError(
+                "No selectable text was found in this PDF. "
+                "It may be a scanned document. Try a text-based PDF; "
+                "scanned PDFs require OCR."
+            )
+
+        return extracted_text
+
+    except ValueError:
+        raise
+    except Exception as exc:
+        print(f"[RAG] PDF parsing failed: {type(exc).__name__}: {exc}")
+        raise ValueError(
+            "The PDF could not be parsed. Check that it is a valid, "
+            "readable PDF and try exporting it again."
+        ) from exc
 
 
 def load_document_text(file_path: Path) -> str:
-    """Loads raw text from supported document formats."""
+    """Load text from a supported document."""
     suffix = file_path.suffix.lower()
+
     if suffix == ".pdf":
         return extract_text_from_pdf(file_path)
-    else:
-        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-            return f.read()
+
+    try:
+        with open(file_path, "r", encoding="utf-8-sig", errors="replace") as f:
+            return f.read().replace("\x00", "")
+    except OSError as exc:
+        raise ValueError(
+            "The uploaded text file could not be read."
+        ) from exc
 
 
 def chunk_text(
@@ -55,37 +114,46 @@ def chunk_text(
     source_name: str,
     user_id: str,
     chunk_size: int = 800,
-    chunk_overlap: int = 150
+    chunk_overlap: int = 150,
 ) -> List[Dict[str, Any]]:
-    """
-    Chunks text with overlapping windows and preserves source metadata for citations.
-    """
-    if not text.strip():
+    """Split extracted text into overlapping chunks for RAG."""
+    if not text or not text.strip():
         return []
 
-    # Clean redundant whitespace while keeping paragraph breaks
-    cleaned = re.sub(r'\r\n', '\n', text)
-    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be greater than zero.")
+
+    if chunk_overlap < 0 or chunk_overlap >= chunk_size:
+        raise ValueError(
+            "chunk_overlap must be non-negative and smaller than chunk_size."
+        )
+
+    cleaned = text.replace("\r\n", "\n").replace("\r", "\n")
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
 
     chunks: List[Dict[str, Any]] = []
-    start = 0
     text_len = len(cleaned)
+    start = 0
     chunk_idx = 1
+    safe_name = sanitize_filename(source_name)
 
     while start < text_len:
         end = min(start + chunk_size, text_len)
-        # Attempt to split at clean sentence or paragraph boundary
+
         if end < text_len:
-            last_newline = cleaned.rfind('\n', start, end)
-            last_period = cleaned.rfind('. ', start, end)
+            last_newline = cleaned.rfind("\n", start, end)
+            last_period = cleaned.rfind(". ", start, end)
             split_at = max(last_newline, last_period)
-            if split_at > start + (chunk_size // 2):
+
+            if split_at > start + chunk_size // 2:
                 end = split_at + (1 if split_at == last_period else 0)
 
         chunk_content = cleaned[start:end].strip()
+
         if chunk_content:
             chunks.append({
-                "id": f"{sanitize_filename(source_name)}-c{chunk_idx}",
+                "id": f"{safe_name}-c{chunk_idx}",
                 "content": chunk_content,
                 "user_id": user_id,
                 "source": source_name,
@@ -97,6 +165,7 @@ def chunk_text(
 
         if end >= text_len:
             break
+
         start = max(start + 1, end - chunk_overlap)
 
     return chunks
