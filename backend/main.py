@@ -202,6 +202,13 @@ async def upload_document_endpoint(
     except HTTPException:
         raise
 
+    except ValueError as exc:
+        # Friendly, user-facing errors from the loader (scanned/encrypted/corrupt PDF, etc.)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
     except Exception:
         import logging
         logging.exception("[RAG] Document upload failed")
@@ -212,7 +219,6 @@ async def upload_document_endpoint(
 
     finally:
         target_path.unlink(missing_ok=True)
-
 
 
 @app.get("/api/rag/documents")
