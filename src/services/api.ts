@@ -1161,7 +1161,7 @@ export async function getCreativeTools(): Promise<Array<{
       category: 'Design & Illustration',
       description: 'Generates clean, scalable SVG graphics, technical diagrams, and icons',
       interface: 'In-process vector renderer',
-      status: 'ready',
+      status: 'planned',
     },
     {
       id: 'creative-ffmpeg-cli',
@@ -1185,7 +1185,7 @@ export async function getCreativeTools(): Promise<Array<{
       category: 'UI/UX Design',
       description: 'Connects to Figma REST API and Model Context Protocol server',
       interface: 'MCP Server / REST',
-      status: 'configured',
+      status: 'planned',
     },
   ];
 }
@@ -1207,7 +1207,7 @@ export async function generateCreativeSVG(prompt: string): Promise<string> {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400" fill="none">
     <rect width="400" height="400" rx="16" fill="#171717" stroke="#262626" stroke-width="2" />
     <circle cx="200" cy="200" r="90" stroke="#06b6d4" stroke-width="4" stroke-dasharray="6 6" />
-    <text x="200" y="206" fill="#f5f5f5" font-family="system-ui, sans-serif" font-size="14" font-weight="600" text-anchor="middle">${prompt.slice(0, 24)}</text>
+    <text x="200" y="206" fill="#f5f5f5" font-family="system-ui, sans-serif" font-size="14" font-weight="600" text-anchor="middle">${prompt.slice(0, 24).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</text>
   </svg>`;
 }
 
