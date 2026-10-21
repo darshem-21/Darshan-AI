@@ -98,6 +98,7 @@ async def run_darshan_agent(
     3. Execute safe tools and retrieve citations.
     4. Call OpenRouter to synthesize grounded answer.
     """
+    import re
     selected_model = model or OPENROUTER_DEFAULT_MODEL
     activity_steps: List[AgentActivityStep] = []
     citations: List[Dict[str, Any]] = []
@@ -182,7 +183,7 @@ async def run_darshan_agent(
     # Check for REA reverse engineering commands.
     # This stage only requests approval; it never executes REA.
     if (
-        "rea" in lower_query
+        re.search(r"\brea\b", lower_query)
         or "reverse engineer" in lower_query
         or "decompile" in lower_query
     ):
