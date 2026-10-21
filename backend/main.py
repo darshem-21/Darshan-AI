@@ -175,7 +175,9 @@ async def upload_document_endpoint(
         if not extracted_text.strip():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Could not extract readable text from the uploaded document."
+                detail=("No selectable text found in this document. If it is a scanned or image-only PDF "
+                    "(e.g. a screenshot saved as PDF), it needs OCR, which is not enabled. "
+                    "Try a text-based PDF, or upload a .txt/.md version.")
             )
 
         chunks = chunk_text(
@@ -203,7 +205,10 @@ async def upload_document_endpoint(
     except Exception:
         import logging
         logging.exception("[RAG] Document upload failed")
-        raise
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Document upload failed. Please try again.",
+        )
 
     finally:
         target_path.unlink(missing_ok=True)
