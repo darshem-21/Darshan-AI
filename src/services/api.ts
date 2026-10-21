@@ -27,7 +27,7 @@ import {
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export const API_URL = import.meta.env.VITE_API_URL || 'https://darshan-ai-backend.onrender.com';
 
 /**
  * Global token cache & accessor
