@@ -322,7 +322,7 @@ class VectorStoreManager:
         for chunk in chunks:
             embedding = chunk.get("embedding")
 
-            if not isinstance(embedding, list):
+            if not isinstance(embedding, list) or len(embedding) != len(query_embedding):
                 embedding = generate_embedding(chunk["content"])
 
             score = cosine_similarity(query_embedding, embedding)
