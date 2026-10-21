@@ -2,7 +2,8 @@
 Creative Application Tools and Automation Module.
 Integrates creative workflows via documented CLI and MCP interfaces (Figma, FFmpeg, Blender, SVG).
 """
-
+from html import escape
+from typing import Dict, Any, List
 from typing import Dict, Any, List
 
 
@@ -50,7 +51,8 @@ class CreativeToolsManager:
     @staticmethod
     def generate_svg_asset(prompt: str, width: int = 400, height: int = 400) -> str:
         """Procedurally builds a clean SVG graphic based on description."""
-        # Clean SVG graphic
+        # Only the label changes; escape it so user text cannot inject markup.
+        label = escape((prompt or "").strip()[:28] or "Darshan AI")
         return (
             f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}" fill="none">\n'
             f'  <defs>\n'
@@ -61,7 +63,7 @@ class CreativeToolsManager:
             f'  </defs>\n'
             f'  <rect width="{width}" height="{height}" rx="16" fill="#171717" stroke="#262626" stroke-width="2" />\n'
             f'  <circle cx="{width//2}" cy="{height//2}" r="{min(width, height)//4}" stroke="url(#cyanGrad)" stroke-width="4" stroke-dasharray="8 6" />\n'
-            f'  <text x="{width//2}" y="{height//2 + 6}" fill="#f5f5f5" font-family="system-ui, sans-serif" font-size="14" font-weight="600" text-anchor="middle">{prompt[:28]}</text>\n'
+            f'  <text x="{width//2}" y="{height//2 + 6}" fill="#f5f5f5" font-family="system-ui, sans-serif" font-size="14" font-weight="600" text-anchor="middle">{label}</text>\n'
             f'</svg>'
         )
 
