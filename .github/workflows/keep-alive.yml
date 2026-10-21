@@ -1,0 +1,16 @@
+name: Backend Health Check
+
+on:
+  schedule:
+    - cron: "*/14 * * * *"
+  workflow_dispatch:
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check Darshan AI backend
+        run: |
+          curl --fail --silent --show-error \
+            https://darshan-ai-backend.onrender.com/health

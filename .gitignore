@@ -32,3 +32,6 @@ dist/
 # Local uploads and decompiled APK output
 backend/storage/uploads/
 jadx-output/
+
+__pycache__/
+*.py[cod]
